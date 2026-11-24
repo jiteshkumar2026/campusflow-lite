@@ -8,3 +8,12 @@ faiss-cpu
 google-genai
 python-dotenv
 numpy
+
+langchain
+langchain-community
+langchain-core
+langchain-text-splitters
+langchain-google-genai
+langchain-huggingface
+beautifulsoup4
+requests
