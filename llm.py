@@ -1,13 +1,13 @@
 import os
 from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 
 load_dotenv()
 
 def get_llm(temperature=0.3):
-    return ChatGoogleGenerativeAI(
-        model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-        google_api_key=os.getenv("GEMINI_API_KEY"),
+    return ChatGroq(
+        model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        api_key=os.getenv("GROQ_API_KEY"),
         temperature=temperature,
     )
 
