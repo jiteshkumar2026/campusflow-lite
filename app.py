@@ -1,6 +1,7 @@
 
 import streamlit as st
 from rag import RAGStore
+from classifier import predict
 import textwrap
 
 _original_st_markdown = st.markdown
@@ -901,10 +902,18 @@ def complaint_page():
         if not complaint.strip():
             st.warning("Please enter your complaint.")
         else:
-            st.info(
-                "The trained machine-learning classifier "
-                "will be connected here."
+            category, conf = predict(complaint)
+            st.markdown(
+                f'<div style="background:#4A0E1B;color:#F5E6C8;padding:16px 20px;'
+                f'border-radius:10px;font-size:18px;font-weight:600;">'
+                f'Predicted category: {category}</div>',
+                unsafe_allow_html=True
             )
+            if conf is not None:
+                st.caption(f"Model confidence: {conf:.0%}")
+                if conf < 0.40:
+                    st.info("The model is not very sure. Try describing the problem in more detail.")
+            
 
     st.markdown(
         '<div class="section-heading">Possible Categories</div>',
