@@ -1,6 +1,6 @@
 
 import streamlit as st
-
+from rag import RAGStore
 import textwrap
 
 _original_st_markdown = st.markdown
@@ -732,7 +732,34 @@ def dashboard_page():
     """, unsafe_allow_html=True)
 
 # -------------------- PDF ASSISTANT --------------------
+def sync_store(files):
+    """Keep the FAISS index in step with the files shown in the UI."""
+    if "rag_store" not in st.session_state:
+        with st.spinner("Loading AI models (first time only)..."):
+            st.session_state.rag_store = RAGStore()
+        st.session_state.indexed_keys = set()
 
+    store = st.session_state.rag_store
+    current = {(f.name, f.size): f for f in files}
+
+    # A file was removed: clear the index and re-add what remains
+    if not st.session_state.indexed_keys.issubset(current.keys()):
+        store.reset()
+        st.session_state.indexed_keys = set()
+
+    for key, f in current.items():
+        if key not in st.session_state.indexed_keys:
+            with st.spinner(f"Reading {f.name}..."):
+                try:
+                    n = store.add_pdf(f, f.name)
+                except Exception as e:
+                    st.error(f"Could not read {f.name}: {e}")
+                    continue
+            if n == 0:
+                st.warning(f"No readable text in {f.name}. It may be a scanned PDF.")
+            else:
+                st.session_state.indexed_keys.add(key)
+    return store
 
 def pdf_page():
     profile_header()
@@ -804,22 +831,47 @@ def pdf_page():
 
     st.markdown('<hr class="gold-divider">', unsafe_allow_html=True)
 
-    question = st.text_input(
-        "Ask a question",
-        placeholder="Ask a question about your documents..."
-    )
+    with st.form("pdf_question_form", clear_on_submit=True):
+        question = st.text_input(
+            "Ask a question",
+            placeholder="Ask a question about your documents..."
+        )
+        submitted = st.form_submit_button("➤ Send Question")
 
-    if st.button("➤ Send Question", key="pdf_send_question"):
+    if "pdf_chat" not in st.session_state:
+        st.session_state.pdf_chat = []
+
+    if submitted:
         if not uploaded_files:
             st.warning("Please upload a PDF document first.")
         elif not question.strip():
             st.warning("Please enter your question.")
         else:
-            st.info(
-                "The PDF retrieval and answer-generation backend "
-                "has not yet been connected."
-            )
+            store = sync_store(uploaded_files)
+            history = [(m["q"], m["answer"]) for m in st.session_state.pdf_chat]
+            with st.spinner("Thinking..."):
+                try:
+                    result = store.answer(question, history=history)
+                    st.session_state.pdf_chat.append({
+                        "q": question,
+                        "answer": result["answer"],
+                        "sources": result["sources"],
+                    })
+                except Exception as e:
+                    st.error(f"Something went wrong: {e}")
 
+    # newest first, since the input box is above
+    for m in reversed(st.session_state.pdf_chat):
+        st.markdown(f"**Q:** {m['q']}")
+        st.markdown(m["answer"])
+        if m["sources"]:
+            pages = sorted({(s["source"], s["page"]) for s in m["sources"]})
+            st.caption("Sources: " + ", ".join(f"{a} (p.{b})" for a, b in pages))
+        st.divider()
+
+    if st.session_state.pdf_chat and st.button("Clear chat", key="pdf_clear_chat"):
+        st.session_state.pdf_chat = []
+        st.rerun()
 # -------------------- COMPLAINT CLASSIFIER --------------------
 
 
