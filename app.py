@@ -55,11 +55,15 @@ MUTED = "#625951"
 BORDER = "#E6DCCF"
 
 # Historic university building photograph
-CAMPUS_IMAGE = (
-    "https://images.unsplash.com/photo-1562774053-701939374585"
-    "?auto=format&fit=crop&w=2200&q=90"
-)
+import base64
+from pathlib import Path
 
+def image_to_data_uri(path):
+    data = Path(path).read_bytes()
+    ext = Path(path).suffix.lstrip(".").lower().replace("jpg", "jpeg")
+    return f"data:image/{ext};base64,{base64.b64encode(data).decode()}"
+
+CAMPUS_IMAGE = image_to_data_uri("/Users/jitesh/Desktop/campusflow-lite/assets/campus.jpg")
 # -------------------- SESSION STATE --------------------
 
 if "page" not in st.session_state:
