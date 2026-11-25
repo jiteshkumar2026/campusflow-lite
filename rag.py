@@ -19,12 +19,25 @@ Question: {question}
 Answer:"""
 )
 
+CONDENSE_PROMPT = ChatPromptTemplate.from_template(
+    """Given the chat history and a follow-up question, rewrite the follow-up
+as a standalone question that includes any needed context from the history.
+If it is already standalone, return it unchanged. Output ONLY the question.
+
+Chat history:
+{history}
+
+Follow-up question: {question}
+Standalone question:"""
+)
+
 class RAGStore:
     def __init__(self):
         self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         self.splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
         self.db = None
         self.chain = PROMPT | get_llm()
+        self.condense = CONDENSE_PROMPT | get_llm(temperature=0)
 
     def add_pdf(self, file, filename):
         """file = path or Streamlit UploadedFile. Returns number of chunks added."""
@@ -55,19 +68,36 @@ class RAGStore:
             self.db.add_documents(chunks)
         return len(chunks)
 
-    def answer(self, question, k=4):
+    def answer(self, question, history=None, k=4):
+        """history = list of (question, answer) tuples, oldest first."""
         if self.db is None:
             return {"answer": "Please upload a PDF first.", "sources": []}
-        docs = self.db.similarity_search(question, k=k)
+
+        standalone = question
+        if history:
+            hist_text = "\n".join(
+                f"User: {q}\nAssistant: {a[:400]}" for q, a in history[-3:]
+            )
+            try:
+                standalone = self.condense.invoke(
+                    {"history": hist_text, "question": question}
+                ).content.strip() or question
+            except Exception:
+                standalone = question      # fall back to the raw question
+
+        docs = self.db.similarity_search(standalone, k=k)
         context = "\n\n".join(
             f"[{d.metadata['source']}, page {d.metadata['page']}]\n{d.page_content}"
             for d in docs
         )
-        reply = self.chain.invoke({"context": context, "question": question})
+        reply = self.chain.invoke({"context": context, "question": standalone})
         return {
             "answer": reply.content,
             "sources": [{"source": d.metadata["source"], "page": d.metadata["page"]} for d in docs],
+            "searched_for": standalone,
         }
+    def reset(self):
+        self.db = None
 
     # Day 3: persist the index so students don't re-upload every time
     def save(self, folder="faiss_index"):
