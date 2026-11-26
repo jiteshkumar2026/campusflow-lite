@@ -1,4 +1,4 @@
-
+from planner import generate_plan, extract_pdf_text
 import streamlit as st
 from rag import RAGStore
 from classifier import predict
@@ -741,6 +741,8 @@ def sync_store(files):
         st.session_state.indexed_keys = set()
 
     store = st.session_state.rag_store
+    if store.db is None:                      # index empty -> nothing is really indexed
+        st.session_state.indexed_keys = set()
     current = {(f.name, f.size): f for f in files}
 
     # A file was removed: clear the index and re-add what remains
@@ -849,17 +851,20 @@ def pdf_page():
             st.warning("Please enter your question.")
         else:
             store = sync_store(uploaded_files)
-            history = [(m["q"], m["answer"]) for m in st.session_state.pdf_chat]
-            with st.spinner("Thinking..."):
-                try:
-                    result = store.answer(question, history=history)
-                    st.session_state.pdf_chat.append({
-                        "q": question,
-                        "answer": result["answer"],
-                        "sources": result["sources"],
-                    })
-                except Exception as e:
-                    st.error(f"Something went wrong: {e}")
+            if store.db is None:
+                st.error("No document could be indexed. Check the warning above, or try a text-based PDF.")
+            else:
+                history = [(m["q"], m["answer"]) for m in st.session_state.pdf_chat]
+                with st.spinner("Thinking..."):
+                    try:
+                        result = store.answer(question, history=history)
+                        st.session_state.pdf_chat.append({
+                            "q": question,
+                            "answer": result["answer"],
+                            "sources": result["sources"],
+                        })
+                    except Exception as e:
+                        st.error(f"Something went wrong: {e}")
 
     # newest first, since the input box is above
     for m in reversed(st.session_state.pdf_chat):
@@ -1023,6 +1028,13 @@ def planner_page():
                 st.session_state.planner_saved_pdfs.pop(index)
                 st.rerun()
 
+    st.markdown("**Study Hours Per Day**")
+    hours_per_day = st.slider(
+        "Hours per day", 1, 12, 4,
+        label_visibility="collapsed",
+        key="planner_hours"
+    )
+
     if st.button(
         "✦ Generate Study Plan",
         use_container_width=True,
@@ -1030,24 +1042,39 @@ def planner_page():
     ):
         if not subjects.strip() or not syllabus.strip():
             st.warning("Please enter your subjects and syllabus.")
+        elif exam_date <= date.today():
+            st.warning("Please choose an exam date after today.")
         else:
-            st.info(
-                "Personalized study-plan generation "
-                "will be connected to the GenAI backend."
-            )
+            with st.spinner("Creating your study plan..."):
+                try:
+                    notes = extract_pdf_text(st.session_state.planner_saved_pdfs)
+                    st.session_state.study_plan = generate_plan(
+                        subjects, syllabus, exam_date, hours_per_day, notes
+                    )
+                except Exception as e:
+                    st.error(f"Could not generate the plan: {e}")
 
     st.markdown(
         '<div class="section-heading">Your Study Plan</div>',
         unsafe_allow_html=True
-    )
+        )
 
-    st.markdown("""
-    <div class="empty-state">
-        <div class="symbol">▦</div>
-        <h3 style="font-size:20px;">No plan yet.</h3>
-        <p>Fill in the details and get your personalized study schedule.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    if st.session_state.get("study_plan"):
+        st.markdown(st.session_state.study_plan)
+        st.download_button(
+            "⬇ Download plan",
+            st.session_state.study_plan,
+            file_name="study_plan.md",
+            key="download_study_plan"
+        )
+    else:
+        st.markdown("""
+        <div class="empty-state">
+            <div class="symbol">▦</div>
+            <h3 style="font-size:20px;">No plan yet.</h3>
+            <p>Fill in the details and get your personalized study schedule.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 # -------------------- ABOUT --------------------
 
